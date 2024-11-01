@@ -1,0 +1,1 @@
+export 'inventory.tabs.view.dart';
