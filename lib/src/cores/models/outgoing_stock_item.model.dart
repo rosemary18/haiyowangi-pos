@@ -7,7 +7,7 @@ class OutgoingStockItemModel {
   final int? productId;
   final int? variantId;
   final int? ingredientId;
-  final double? qty;
+  double? qty;
   final String? createdAt;
   final String? updatedAt;
   final ProductModel? product;

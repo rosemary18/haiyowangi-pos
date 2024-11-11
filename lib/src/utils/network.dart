@@ -7,6 +7,7 @@ import 'package:haiyowangi_pos/src/index.dart';
 import 'unauthorized.dart';
 
 class LoggingInterceptor extends Interceptor {
+
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
     debugPrint('[${options.method}]: ${options.uri}');

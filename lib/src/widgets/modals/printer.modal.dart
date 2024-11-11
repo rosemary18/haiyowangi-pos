@@ -1,11 +1,13 @@
 import 'dart:async';
 
-import 'package:bluetooth_print/bluetooth_print.dart';
-import 'package:bluetooth_print/bluetooth_print_model.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_boxicons/flutter_boxicons.dart';
 import 'package:haiyowangi_pos/src/index.dart';
+import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
+import 'package:flutter_esc_pos_utils/flutter_esc_pos_utils.dart';
+
 
 class ModalPrinter extends StatefulWidget {
 
@@ -24,11 +26,11 @@ class ModalPrinter extends StatefulWidget {
 
 class _ModalPrinterState extends State<ModalPrinter> {
 
-  BluetoothPrint bluetoothPrint = BluetoothPrint.instance;
-
   bool printMode = false;
-  BluetoothDevice? _device;
+  bool isScanning = false;
   SaleModel data = SaleModel();
+  BluetoothInfo? _device;
+  List<BluetoothInfo> bluetooths = [];
 
   @override
   void initState() {
@@ -36,39 +38,73 @@ class _ModalPrinterState extends State<ModalPrinter> {
     super.initState();
     data = widget.data;
     printMode = widget.printMode;
-    WidgetsBinding.instance.addPostFrameCallback((_) => initBluetooth());
+    initPlatformState();
   }
 
-  Future<void> initBluetooth() async {
+  Future<void> initPlatformState() async {
 
-    bluetoothPrint.startScan(timeout: const Duration(seconds: 4));
+    String platformVersion;
+    int percentbatery = 0;
+    
+    try {
+      platformVersion = await PrintBluetoothThermal.platformVersion;
+      percentbatery = await PrintBluetoothThermal.batteryLevel;
+    } on PlatformException {
+      platformVersion = 'Failed to get platform version.';
+    }
+
+    if (!mounted) return;
+
+    final bool result = await PrintBluetoothThermal.bluetoothEnabled;
+    debugPrint("Bluetooth enabled: $result | Platform Version: $platformVersion | % Battery: $percentbatery");
   }
 
   Future<bool> handlerConnect() async {
 
-    bool isConnected = await bluetoothPrint.isConnected ?? false;
+    bool isConnected = await PrintBluetoothThermal.connectionStatus;
 
-    if (isConnected) {
-      await bluetoothPrint.disconnect();
+    if (isConnected || _device == null) {
+      await PrintBluetoothThermal.disconnect;
     }
 
-    if ((_device != null && _device!.address != null)) {
-      await bluetoothPrint.connect(_device!);
+    if (_device != null) {
+      await PrintBluetoothThermal.connect(macPrinterAddress: _device!.macAdress);
       return true;
     }
 
     return isConnected;
   }
 
-  void handlerPickPrinter(BluetoothDevice d) async {
+  Future<void> handlerScan() async {
+
+    if (!isScanning) {
+      setState(() {
+        isScanning = true;
+        bluetooths = [];
+      });
+
+      final List<BluetoothInfo> lists = await PrintBluetoothThermal.pairedBluetooths;
+
+      setState(() {
+        bluetooths = lists;
+        isScanning = false;
+      });
+    } else {
+      setState(() {
+        isScanning = false;
+      });
+    }
+  }
+
+  void handlerPickPrinter(BluetoothInfo d) async {
 
     if (_device == d) {
       _device = null;
     } else {
       _device = d;
-      handlerConnect();
     }
 
+    handlerConnect();
     setState(() {});
   }
 
@@ -82,50 +118,57 @@ class _ModalPrinterState extends State<ModalPrinter> {
 
       final state = context.read<AuthBloc>().state;
 
-      Map<String, dynamic> config = {};
-      config['gap'] = 0;
+      List<int> bytes = [];
+      final profile = await CapabilityProfile.load();
+      final generator = Generator(PaperSize.mm58, profile);
+      bytes += generator.setGlobalFont(PosFontType.fontA);
+      bytes += generator.reset();
 
-      List<LineText> list = [];
+      // DRAW RECEIPT
 
-      list.add(LineText(type: LineText.TYPE_TEXT, content: 'Haiyo Wangi', weight: 1, align: LineText.ALIGN_CENTER, fontZoom: 4, linefeed: 1));
-      list.add(LineText(type: LineText.TYPE_TEXT, content: state.store!.name, weight: 1, align: LineText.ALIGN_CENTER, linefeed: 1));
-      list.add(LineText(linefeed: 1));
-      list.add(LineText(type: LineText.TYPE_TEXT, content: formatDateFromString(data.createdAt.toString(), format: "EEEE, dd/MM/yyyy hh:mm"), align: LineText.ALIGN_LEFT, linefeed: 1));
-      
-      list.add(LineText(type: LineText.TYPE_TEXT, content: '--------------------------------', linefeed: 1));
+      bytes += generator.feed(2);
+      bytes += generator.text('Haiyo Wangi', styles: const PosStyles(align: PosAlign.center, bold: true));
+      bytes += generator.text(state.store!.name ?? "", styles: const PosStyles(align: PosAlign.center, bold: true));
+      bytes += generator.text(formatDateFromString(data.createdAt.toString(), format: "EEEE, dd/MM/yyyy hh:mm"), styles: const PosStyles(align: PosAlign.center));
+      bytes += generator.feed(1);
+      bytes += generator.text('--------------------------------', styles: const PosStyles(align: PosAlign.center));
 
       for (var item in data.items) {
         int index = data.items.indexOf(item);
         if (item.packetId != null) {
-          list.add(LineText(type: LineText.TYPE_TEXT, content: '${index+1}. x${item.qty} @ ${parseRupiahCurrency(item.packet!.price.toString())} ', align: LineText.ALIGN_LEFT, linefeed: 1));
-          list.add(LineText(type: LineText.TYPE_TEXT, content: item.packet!.name, align: LineText.ALIGN_LEFT, x: 34, linefeed: 1));
+          bytes += generator.text('${index+1}. x${item.qty} @ ${parseRupiahCurrency(item.packet!.price.toString())} ', styles: const PosStyles(align: PosAlign.left));
+          bytes += generator.text("   ${item.packet!.name ?? ""}", styles: const PosStyles(align: PosAlign.left));
           for (var p in item.packet!.items) {
-            list.add(LineText(type: LineText.TYPE_TEXT, content: '- x${p.qty} ${p.product != null ? p.product!.name : p.variant!.name}', align: LineText.ALIGN_LEFT, x: 34, linefeed: 1));
-          }          
+            bytes += generator.text('   - x${p.qty} ${p.product != null ? p.product!.name : p.variant!.name}', styles: const PosStyles(align: PosAlign.left));
+          }
         } else {
-          list.add(LineText(type: LineText.TYPE_TEXT, content: '${index+1}. x${item.qty} @ ${parseRupiahCurrency(item.product != null ? item.product!.price.toString() : item.variant!.price.toString())} ', align: LineText.ALIGN_LEFT, linefeed: 1));
-          list.add(LineText(type: LineText.TYPE_TEXT, content: '${item.product != null ? item.product!.name : item.variant!.name}', align: LineText.ALIGN_LEFT, x: 34, linefeed: 1));
+          bytes += generator.text('${index+1}. x${item.qty} @ ${parseRupiahCurrency(item.product != null ? item.product!.price.toString() : item.variant!.price.toString())} ', styles: const PosStyles(align: PosAlign.left));
+          bytes += generator.text('   ${item.product != null ? item.product!.name : item.variant!.name}', styles: const PosStyles(align: PosAlign.left));
         }
       }
 
-      list.add(LineText(type: LineText.TYPE_TEXT, content: '--------------------------------', linefeed: 1));
-      list.add(LineText(type: LineText.TYPE_TEXT, content: 'Subtotal  : ${parseRupiahCurrency(data.invoice!.subTotal.toString())}', align: LineText.ALIGN_LEFT, linefeed: 1));
-      list.add(LineText(type: LineText.TYPE_TEXT, content: 'Diskon    : ${parseRupiahCurrency(data.invoice!.discount.toString())}', align: LineText.ALIGN_LEFT, linefeed: 1));
-      list.add(LineText(type: LineText.TYPE_TEXT, content: 'Total     : ${parseRupiahCurrency(data.invoice!.total.toString())}', align: LineText.ALIGN_LEFT, linefeed: 1));
-      list.add(LineText(type: LineText.TYPE_TEXT, content: 'Cash      : ${parseRupiahCurrency(data.invoice!.cash.toString())}', align: LineText.ALIGN_LEFT, linefeed: 1));
-      list.add(LineText(type: LineText.TYPE_TEXT, content: 'Kembalian : ${parseRupiahCurrency(data.invoice!.changeMoney.toString())}', align: LineText.ALIGN_LEFT, linefeed: 1));
-      list.add(LineText(type: LineText.TYPE_TEXT, content: "Kasir: ${data.staff!.name}", align: LineText.ALIGN_LEFT, linefeed: 1));
+      bytes += generator.text('--------------------------------', styles: const PosStyles(align: PosAlign.center));
+      bytes += generator.feed(1);
 
-      list.add(LineText(linefeed: 1));
-      list.add(LineText(type: LineText.TYPE_TEXT, content: "Terima kasih telah berbelanja di Haiyo Wangi", align: LineText.ALIGN_CENTER, linefeed: 1));
-      list.add(LineText(linefeed: 1));
+      bytes += generator.text('Subtotal  : ${parseRupiahCurrency(data.invoice!.subTotal.toString())}', styles: const PosStyles(align: PosAlign.left));
+      bytes += generator.text('Diskon    : ${parseRupiahCurrency(data.invoice!.discount.toString())}', styles: const PosStyles(align: PosAlign.left));
+      bytes += generator.text('Total     : ${parseRupiahCurrency(data.invoice!.total.toString())}', styles: const PosStyles(align: PosAlign.left));
+      bytes += generator.text('Cash      : ${parseRupiahCurrency(data.invoice!.cash.toString())}', styles: const PosStyles(align: PosAlign.left));
+      bytes += generator.text('Kembalian : ${parseRupiahCurrency(data.invoice!.changeMoney.toString())}', styles: const PosStyles(align: PosAlign.left));
+      bytes += generator.text("Kasir     : ${data.staff!.name}", styles: const PosStyles(align: PosAlign.left));
+      
+      bytes += generator.feed(2);
+      bytes += generator.text('Terima kasih telah berbelanja di Haiyo Wangi', styles: const PosStyles(align: PosAlign.center));
+      bytes += generator.feed(2);
 
-      await bluetoothPrint.printReceipt(config, list);
+      await PrintBluetoothThermal.writeBytes(bytes);
     }
   }
 
+
   @override
   Widget build(BuildContext context) {
+    
     return AlertDialog(
       title: printMode ? Row(
         children: [
@@ -133,63 +176,36 @@ class _ModalPrinterState extends State<ModalPrinter> {
             child: Text('Pilih printer', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16))
           ),
           const SizedBox(width: 8),
-          StreamBuilder<bool>(
-            stream: bluetoothPrint.isScanning,
-            initialData: false,
-            builder: (c, snapshot) {
-              if (snapshot.data == true) {
-                return TouchableOpacity(
-                  onPress: () => bluetoothPrint.stopScan(),
-                  child: const Icon(
-                    Boxicons.bx_stop_circle,
-                    color: redColor,
-                    size: 24
-                  )
-                );
-              } else {
-                return TouchableOpacity(
-                  onPress: () => bluetoothPrint.startScan(timeout: const Duration(seconds: 4)),
-                  child: const Icon(
-                    Boxicons.bx_refresh,
-                    color: primaryColor,
-                    size: 24
-                  )
-                );
-              }
-            },
-          ),
+              TouchableOpacity(
+                onPress: handlerScan,
+                child: Icon(
+                  (isScanning) ? Boxicons.bx_stop_circle : Boxicons.bx_refresh,
+                  color: (isScanning) ? redColor : primaryColor,
+                  size: 24
+                )
+              ),
         ]
       ) : null,
       titlePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16),
       content: Container(
         margin: const EdgeInsets.only(bottom: 16),
+        constraints: const BoxConstraints(minHeight: 80),
         width: printMode ? MediaQuery.of(context).size.width*.75 : null,
-        child: printMode ? RefreshIndicator(
-          onRefresh: () => bluetoothPrint.startScan(timeout: const Duration(seconds: 4)),
-          child: SingleChildScrollView(
+        child: printMode ? SingleChildScrollView(
             child: Column(
-              children: <Widget>[
-                StreamBuilder<List<BluetoothDevice>>(
-                  stream: bluetoothPrint.scanResults,
-                  initialData: const [],
-                  builder: (c, snapshot) => Column(
-                    children: snapshot.data!.map((d) => ListTile(
-                      title: Text(d.name??'', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                      subtitle: Text(d.address??'', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: greyTextColor)),
-                      contentPadding: const EdgeInsets.only(right: 16),
-                      onTap: () => handlerPickPrinter(d),
-                      trailing: _device != null && _device!.address == d.address ? const Icon(
-                        Icons.check,
-                        color: Colors.green,
-                      ) : null,
-                    )).toList(),
-                  ),
-                ),
-              ],
+              children: bluetooths.map((d) => ListTile(
+                title: Text(d.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                subtitle: Text(d.macAdress, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: greyTextColor)),
+                contentPadding: const EdgeInsets.only(right: 16),
+                onTap: () => handlerPickPrinter(d),
+                trailing: _device != null && _device!.macAdress == d.macAdress ? const Icon(
+                  Icons.check,
+                  color: Colors.green,
+                ) : null,
+              )).toList(),
             ),
-          ),
-        ) : const Padding(
+          ) : const Padding(
           padding: EdgeInsets.only(top: 48, bottom: 24, left: 24, right: 24),
           child: Center(
             child: Text("Penjualan baru telah disimpan!\n🫡", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
@@ -248,4 +264,5 @@ class _ModalPrinterState extends State<ModalPrinter> {
       ],
     );
   }
+
 }

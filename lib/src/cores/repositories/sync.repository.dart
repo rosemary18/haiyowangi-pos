@@ -194,7 +194,7 @@ class SyncRepository {
 
     if ((incomingStocks != null && incomingStocks?.isNotEmpty) ||( outgoingStocks != null && outgoingStocks?.isNotEmpty)) {
 
-      Response syncStock = await syncStocks(storeId, incomingStocks: incomingStocks, outgoingStocks: outgoingStocks);
+      Response syncStock = await syncStocks(storeId, incomingStocks: incomingStocks ?? [], outgoingStocks: outgoingStocks ?? []);
 
       if (syncStock.statusCode != 200) {
 

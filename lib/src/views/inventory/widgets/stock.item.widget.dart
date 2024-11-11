@@ -37,7 +37,7 @@ class _StockItemState extends State<StockItem> {
     }
     ctrlQty.addListener(() {
       if (widget.data["qty"].toString() != ctrlQty.text.toString()) {
-        widget.data["qty"] = double.parse(ctrlQty.text);
+        widget.data["qty"] = double.tryParse(ctrlQty.text);
         widget.onChange!(widget.data);
       }
     });

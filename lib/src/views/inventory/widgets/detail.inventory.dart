@@ -76,14 +76,6 @@ class _DetailInventoryState extends State<DetailInventory> {
 
         if (!exist) {
 
-          if (item.runtimeType == ProductModel) {
-            if (widget.stokOut) {
-
-            } else {
-              
-            }
-          }
-
           newItems.add(
             widget.stokOut ? OutgoingStockItemModel(
               productId: (item.runtimeType == ProductModel) ? item.id : null,
@@ -244,6 +236,7 @@ class _DetailInventoryState extends State<DetailInventory> {
   Widget buildItem(dynamic data) {
 
     dynamic pdata;
+    int i = items.indexOf(data);
 
     if (data.productId != null) {
       pdata = data.product;
@@ -264,14 +257,10 @@ class _DetailInventoryState extends State<DetailInventory> {
         "data": pdata
       },
       onChange: (d) {
-        if (timeId?.isActive ?? false) timeId!.cancel();
-        timeId = Timer(const Duration(milliseconds: 500), () {
-            
-        });
+        items[i].qty = d["qty"];
+        setState(() {});
       },
-      onDelete: (d) {
-        viewConfirmDeleteItem(data);
-      },
+      onDelete: viewConfirmDeleteItem
     );
   }
 
