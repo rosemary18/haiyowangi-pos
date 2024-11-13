@@ -21,9 +21,12 @@ class _SalesViewState extends State<SalesView> {
   SaleModel? sale;
 
   final box = Hive.box("storage");
+  StoreModel? store;
+  dynamic overviews;
 
   @override
   void initState() {
+
     super.initState();
     handlerLoadSales();
   }
@@ -31,7 +34,14 @@ class _SalesViewState extends State<SalesView> {
   Future<void> handlerLoadSales() async {
 
     sales.clear();
+    final _overviews = box.get("overviews");
     final _sales = box.get("sales");
+    final state = context.read<AuthBloc>().state;
+    
+    store = state.store;
+    if (_overviews != null) {
+      overviews = _overviews;
+    }
 
     if (_sales != null) {
       for (var item in _sales) {
@@ -47,6 +57,7 @@ class _SalesViewState extends State<SalesView> {
         }
       }
     }
+    debugPrint(_overviews.toString());
 
     setState(() {});
   }
@@ -439,6 +450,35 @@ class _SalesViewState extends State<SalesView> {
     );
   }
 
+  TableRow buildRowOverview(int index, String data, String qty) {
+
+    return TableRow(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+          child: Text(
+            '$index.',
+            style: const TextStyle(fontSize: 12),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+          child: Text(
+            data,
+            style: const TextStyle(fontSize: 12),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+          child: Text(
+            qty,
+            style: const TextStyle(fontSize: 12),
+          ),
+        )
+      ]
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -776,7 +816,98 @@ class _SalesViewState extends State<SalesView> {
                       )
                     )
                   ],
-                ) : null,
+                ) : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text("${store?.name}", style: const TextStyle(color: blackColor, fontSize: 18, fontWeight: FontWeight.bold)),
+                        ),
+                      ],
+                    ),
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text("[${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}]: Ringkasan Penjualan (Tersingkronasi)", style: const TextStyle(color: blackColor, fontSize: 14)),
+                          const SizedBox(height: 8),
+                          Table(
+                            border: TableBorder.all(
+                              borderRadius: BorderRadius.circular(4),
+                              color: greyLightColor
+                            ),
+                            defaultVerticalAlignment: TableCellVerticalAlignment.top,
+                            columnWidths: const <int, TableColumnWidth>{
+                              0: FixedColumnWidth(56.0),
+                              1: FlexColumnWidth(1),
+                              2: FixedColumnWidth(140.0),
+                            },
+                            children: [
+                              const TableRow(
+                                decoration: BoxDecoration(color: white1Color), // Row header
+                                children: [
+                                  Padding(
+                                    padding: EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                                    child: Text(
+                                      'No',
+                                      style: TextStyle(fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding: EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                                    child: Text(
+                                      'Data',
+                                      style: TextStyle(fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding: EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                                    child: Text(
+                                      'Jumlah',
+                                      style: TextStyle(fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              if (overviews != null) buildRowOverview(1, "Jumlah penjualan", "${overviews?["total_sales"]}"),
+                              if (overviews != null) buildRowOverview(2, "Total penjualan", parseRupiahCurrency("${overviews?["total_sales_amount"]}")),
+                              if (overviews != null) buildRowOverview(3, "Pembayaran cash", parseRupiahCurrency("${overviews?["cash_amount"]}")),
+                              if (overviews != null) buildRowOverview(4, "Pembayaran transfer", parseRupiahCurrency("${overviews?["transfer_amount"]}")),
+                              if (overviews == null) const TableRow(
+                                children: [
+                                  Padding(
+                                    padding: EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                                    child: Text(
+                                      '1.',
+                                      style: TextStyle(fontSize: 12),
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding: EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                                    child: Text(
+                                      '...',
+                                      style: TextStyle(fontSize: 12),
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding: EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                                    child: Text(
+                                      '...',
+                                      style: TextStyle(fontSize: 12),
+                                    ),
+                                  ),
+                                ]
+                              )
+                            ],
+                          )
+                        ],
+                      ),
+                    )
+                  ],
+                ),
               )
             )
           ],

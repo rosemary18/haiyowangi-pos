@@ -42,15 +42,19 @@ class SyncRepository {
         final _sales = response.data["data"]["sales"];
         final _ingredients = response.data["data"]["ingredients"];
         final _paymentTypes = response.data["data"]["paymenttypes"];
+        final _overviews = response.data["data"]["overviews"];
+
+        debugPrint(response.data["data"]!["overviews"].toString());
 
         await box.put("store", _store);
         await box.put("products", _products);
         await box.put("variants", _variants);
         await box.put("packets", _packets);
         await box.put("discounts", _discounts);
-        await box.put("sales", _sales);
+        await box.put("prevSales", _sales);
         await box.put("ingredients", _ingredients);
         await box.put("paymenttypes", _paymentTypes);
+        await box.put("overviews", _overviews);
 
         final storedImages = files.where((e) => e.path.contains(".png") || e.path.contains(".jpg") || e.path.contains(".jpeg")).map((e) => e.path.split("${appDir.path}/").last).toList();
         final downloadableImages = [];
@@ -153,7 +157,7 @@ class SyncRepository {
     if (sales != null && sales?.isNotEmpty) {
 
       for (var item in sales) {
-        if (item["invoice"]!["payment"]!["img"]?.isNotEmpty ?? false) {
+        if (item["invoice"]?["payment"]?["img"]?.isNotEmpty ?? false) {
 
           FormData formData = FormData.fromMap({
             "file": await MultipartFile.fromFile(
